@@ -1,0 +1,97 @@
+{
+    "refreshInterval": {
+        "type": "spinbutton",
+        "default": 1000,
+        "min": 500,
+        "max": 5000,
+        "step": 100,
+        "units": "milliseconds",
+        "description": "Refresh interval",
+        "tooltip": "How often to update system statistics (500-5000ms)"
+    },
+    "displayFormat": {
+        "type": "combobox",
+        "default": "percentage",
+        "options": {
+            "Percentage only": "percentage",
+            "Graph only": "graph",
+            "Both percentage and graph": "both"
+        },
+        "description": "Display format",
+        "tooltip": "Choose how to display system usage information"
+    },
+    "showGPU": {
+        "type": "checkbox",
+        "default": true,
+        "description": "Show GPU information",
+        "tooltip": "Display GPU usage statistics alongside CPU data"
+    },
+    "colorTheme": {
+        "type": "combobox",
+        "default": "default",
+        "options": {
+            "Default theme": "default",
+            "Custom colors": "custom",
+            "Monochrome": "monochrome"
+        },
+        "description": "Color theme",
+        "tooltip": "Choose the color scheme for usage indicators"
+    },
+    "thresholds": {
+        "type": "section",
+        "description": "Usage thresholds"
+    },
+    "warningThreshold": {
+        "type": "spinbutton",
+        "default": 70,
+        "min": 1,
+        "max": 99,
+        "step": 1,
+        "units": "percent",
+        "description": "Warning threshold",
+        "tooltip": "CPU usage percentage to trigger warning color",
+        "dependency": "thresholds"
+    },
+    "criticalThreshold": {
+        "type": "spinbutton",
+        "default": 90,
+        "min": 1,
+        "max": 100,
+        "step": 1,
+        "units": "percent",
+        "description": "Critical threshold",
+        "tooltip": "CPU usage percentage to trigger critical color",
+        "dependency": "thresholds"
+    },
+    "customColors": {
+        "type": "section",
+        "description": "Custom colors",
+        "dependency": "colorTheme=custom"
+    },
+    "normalColor": {
+        "type": "colorchooser",
+        "default": "#00ff00",
+        "description": "Normal usage color",
+        "tooltip": "Color for normal CPU usage levels",
+        "dependency": "customColors"
+    },
+    "warningColor": {
+        "type": "colorchooser",
+        "default": "#ffff00",
+        "description": "Warning usage color",
+        "tooltip": "Color for warning CPU usage levels",
+        "dependency": "customColors"
+    },
+    "criticalColor": {
+        "type": "colorchooser",
+        "default": "#ff0000",
+        "description": "Critical usage color",
+        "tooltip": "Color for critical CPU usage levels",
+        "dependency": "customColors"
+    },
+    "settingsVersion": {
+        "type": "generic",
+        "default": "1.0.0",
+        "description": "Settings schema version (internal use)"
+    }
+}

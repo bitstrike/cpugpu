@@ -1,0 +1,16 @@
+{
+    "uuid": "cpugpu@bitcrash",
+    "name": "System Monitor",
+    "description": "Real-time CPU and GPU monitoring applet for Cinnamon desktop. Displays system usage statistics in the panel with customizable appearance and behavior.",
+    "version": "1.0.0",
+    "author": "System Monitor Development Team",
+    "url": "",
+    "website": "",
+    "cinnamon-version": ["4.0", "4.2", "4.4", "4.6", "4.8", "5.0", "5.2", "5.4", "5.6", "5.8", "6.0"],
+    "multiversion": true,
+    "max-instances": 5,
+    "icon": "icon.svg",
+    "category": "System",
+    "keywords": ["system", "monitor", "cpu", "gpu", "performance", "usage", "statistics"],
+    "last-edited": "2024-12-13"
+}
