@@ -1,97 +1,109 @@
 {
-    "refreshInterval": {
+    "graph-width": {
+        "type": "spinbutton",
+        "default": 150,
+        "min": 50,
+        "max": 500,
+        "step": 10,
+        "units": "pixels",
+        "description": "Graph Width",
+        "tooltip": "Width of each temperature graph"
+    },
+    "override-panel-height": {
+        "type": "checkbox",
+        "default": false,
+        "description": "Override Panel Height",
+        "tooltip": "Enable to manually set graph height, otherwise graphs automatically fit panel height"
+    },
+    "graph-height": {
+        "type": "spinbutton",
+        "default": 100,
+        "min": 20,
+        "max": 300,
+        "step": 10,
+        "units": "pixels",
+        "description": "Graph Height (when override enabled)",
+        "tooltip": "Height of each temperature graph (only used when Override Panel Height is enabled)",
+        "dependency": "override-panel-height"
+    },
+    "time-range": {
+        "type": "spinbutton",
+        "default": 60,
+        "min": 10,
+        "max": 600,
+        "step": 10,
+        "units": "seconds",
+        "description": "Time Range (X-axis)",
+        "tooltip": "Time range to display on the X-axis"
+    },
+    "sample-rate": {
+        "type": "spinbutton",
+        "default": 2,
+        "min": 1,
+        "max": 60,
+        "step": 1,
+        "units": "seconds",
+        "description": "Sample Rate",
+        "tooltip": "How often to sample temperature readings"
+    },
+    "cpu-color": {
+        "type": "colorchooser",
+        "default": "rgba(255,100,100,1)",
+        "description": "CPU Graph Color",
+        "tooltip": "Color for the CPU temperature line"
+    },
+    "gpu-color": {
+        "type": "colorchooser",
+        "default": "rgba(100,255,100,1)",
+        "description": "GPU Graph Color",
+        "tooltip": "Color for the GPU temperature line"
+    },
+    "bg-color": {
+        "type": "colorchooser",
+        "default": "rgba(0,0,0,0.8)",
+        "description": "Background Color",
+        "tooltip": "Background color for the graphs"
+    },
+    "grid-color": {
+        "type": "colorchooser",
+        "default": "rgba(100,100,100,0.5)",
+        "description": "Grid Color",
+        "tooltip": "Color for the grid lines"
+    },
+    "use-fahrenheit": {
+        "type": "checkbox",
+        "default": false,
+        "description": "Use Fahrenheit",
+        "tooltip": "Display temperature in Fahrenheit instead of Celsius"
+    },
+    "temp-min": {
+        "type": "spinbutton",
+        "default": 0,
+        "min": -60,
+        "max": 212,
+        "step": 5,
+        "units": "F/C",
+        "description": "Minimum Temperature (Y-axis)",
+        "tooltip": "Minimum temperature for Y-axis. Enter in Fahrenheit if 'Use Fahrenheit' is checked, otherwise Celsius."
+    },
+    "temp-max": {
+        "type": "spinbutton",
+        "default": 100,
+        "min": 0,
+        "max": 302,
+        "step": 5,
+        "units": "F/C",
+        "description": "Maximum Temperature (Y-axis)",
+        "tooltip": "Maximum temperature for Y-axis. Enter in Fahrenheit if 'Use Fahrenheit' is checked, otherwise Celsius."
+    },
+    "buffer-size": {
         "type": "spinbutton",
         "default": 1000,
-        "min": 500,
-        "max": 5000,
+        "min": 100,
+        "max": 10000,
         "step": 100,
-        "units": "milliseconds",
-        "description": "Refresh interval",
-        "tooltip": "How often to update system statistics (500-5000ms)"
-    },
-    "displayFormat": {
-        "type": "combobox",
-        "default": "percentage",
-        "options": {
-            "Percentage only": "percentage",
-            "Graph only": "graph",
-            "Both percentage and graph": "both"
-        },
-        "description": "Display format",
-        "tooltip": "Choose how to display system usage information"
-    },
-    "showGPU": {
-        "type": "checkbox",
-        "default": true,
-        "description": "Show GPU information",
-        "tooltip": "Display GPU usage statistics alongside CPU data"
-    },
-    "colorTheme": {
-        "type": "combobox",
-        "default": "default",
-        "options": {
-            "Default theme": "default",
-            "Custom colors": "custom",
-            "Monochrome": "monochrome"
-        },
-        "description": "Color theme",
-        "tooltip": "Choose the color scheme for usage indicators"
-    },
-    "thresholds": {
-        "type": "section",
-        "description": "Usage thresholds"
-    },
-    "warningThreshold": {
-        "type": "spinbutton",
-        "default": 70,
-        "min": 1,
-        "max": 99,
-        "step": 1,
-        "units": "percent",
-        "description": "Warning threshold",
-        "tooltip": "CPU usage percentage to trigger warning color",
-        "dependency": "thresholds"
-    },
-    "criticalThreshold": {
-        "type": "spinbutton",
-        "default": 90,
-        "min": 1,
-        "max": 100,
-        "step": 1,
-        "units": "percent",
-        "description": "Critical threshold",
-        "tooltip": "CPU usage percentage to trigger critical color",
-        "dependency": "thresholds"
-    },
-    "customColors": {
-        "type": "section",
-        "description": "Custom colors",
-        "dependency": "colorTheme=custom"
-    },
-    "normalColor": {
-        "type": "colorchooser",
-        "default": "#00ff00",
-        "description": "Normal usage color",
-        "tooltip": "Color for normal CPU usage levels",
-        "dependency": "customColors"
-    },
-    "warningColor": {
-        "type": "colorchooser",
-        "default": "#ffff00",
-        "description": "Warning usage color",
-        "tooltip": "Color for warning CPU usage levels",
-        "dependency": "customColors"
-    },
-    "criticalColor": {
-        "type": "colorchooser",
-        "default": "#ff0000",
-        "description": "Critical usage color",
-        "tooltip": "Color for critical CPU usage levels",
-        "dependency": "customColors"
-    },
-    "settingsVersion": {
-        "type": "generic",
-        "default": "1.0.0",
-        "description": "Settings schema version (internal use)"
+        "units": "readings",
+        "description": "History Buffer Size",
+        "tooltip": "Number of temperature readings to retain in history (100-10000)"
     }
 }

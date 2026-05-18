@@ -1,16 +1,7 @@
 {
     "uuid": "cpugpu@bitcrash",
-    "name": "CPU/GPU Temp Monitor",
-    "description": "Real-time CPU and GPU thermal monitoring applet for Cinnamon desktop. Displays graph in the panel with customizable appearance and behavior.",
-    "version": "1.0.0",
-    "author": "System Monitor Development Team",
-    "url": "https://github.com/bitstrike/cpugpu",
-    "website": "https://github.com/bitstrike/cpugpu",
-    "cinnamon-version": ["4.0", "4.2", "4.4", "4.6", "4.8", "5.0", "5.2", "5.4", "5.6", "5.8", "6.0"],
-    "multiversion": true,
-    "max-instances": 5,
-    "icon": "icon.svg",
-    "category": "System",
-    "keywords": ["system", "monitor", "cpu", "gpu", "performance", "usage", "statistics"],
-    "last-edited": "2024-12-13"
+    "name": "Temperature Monitor",
+    "description": "Monitor CPU and GPU temperatures with configurable graphs",
+    "version": "1.0",
+    "cinnamon-version": ["4.0", "4.2", "4.4", "4.6", "4.8", "5.0", "5.2", "5.4", "5.6", "5.8", "6.0"]
 }

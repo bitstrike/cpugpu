@@ -1,182 +1,132 @@
-/* System Monitor Applet Styles */
+/* CPU/GPU Temperature Monitor Applet Styles */
 
-/* Base applet styling that integrates with Cinnamon themes */
-.system-monitor-applet {
-    font-family: inherit;
-    font-size: inherit;
+/* Main container for the applet */
+.temp-monitor-main {
     padding: 2px 4px;
-    transition: all 0.2s ease-in-out;
+    spacing: 8px;
 }
 
-.system-monitor-applet:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+/* Individual graph containers */
+.temp-graph-container {
+    spacing: 2px;
+    padding: 2px;
     border-radius: 3px;
+    background-color: rgba(0, 0, 0, 0.1);
 }
 
-/* Default theme colors - integrate with Cinnamon's color scheme */
-.system-monitor-normal {
-    color: #4CAF50; /* Material Green */
-    font-weight: normal;
+.temp-graph-container:hover {
+    background-color: rgba(255, 255, 255, 0.1);
 }
 
-.system-monitor-warning {
-    color: #FF9800; /* Material Orange */
+/* Temperature labels */
+.temp-label {
+    font-size: 10px;
     font-weight: bold;
-}
-
-.system-monitor-critical {
-    color: #F44336; /* Material Red */
-    font-weight: bold;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
-}
-
-/* Monochrome theme - uses panel text color with different intensities */
-.system-monitor-monochrome.system-monitor-normal {
-    color: inherit;
-    opacity: 0.8;
-    font-weight: normal;
-}
-
-.system-monitor-monochrome.system-monitor-warning {
-    color: inherit;
-    opacity: 0.9;
-    font-weight: bold;
-}
-
-.system-monitor-monochrome.system-monitor-critical {
-    color: inherit;
-    opacity: 1.0;
-    font-weight: bold;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
-}
-
-/* Custom theme - colors will be set via inline styles */
-.system-monitor-custom {
-    font-weight: normal;
-    transition: color 0.2s ease-in-out;
-}
-
-.system-monitor-custom.system-monitor-warning {
-    font-weight: bold;
-}
-
-.system-monitor-custom.system-monitor-critical {
-    font-weight: bold;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
-}
-
-/* Graph display styling */
-.system-monitor-graph {
-    font-family: monospace;
-    letter-spacing: -1px;
-}
-
-/* Icon styling based on usage levels */
-.system-monitor-icon-normal {
-    opacity: 0.7;
-}
-
-.system-monitor-icon-warning {
-    opacity: 0.9;
-}
-
-.system-monitor-icon-critical {
-    opacity: 1.0;
-    animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-    0% { opacity: 1.0; }
-    50% { opacity: 0.7; }
-    100% { opacity: 1.0; }
-}
-
-/* Tooltip styling that adapts to Cinnamon theme */
-.system-monitor-tooltip {
-    font-family: monospace;
-    font-size: 0.85em;
-    line-height: 1.4;
-    padding: 8px 10px;
-    background-color: rgba(0, 0, 0, 0.85);
+    text-align: center;
     color: #ffffff;
-    border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    max-width: 300px;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+    padding: 1px 2px;
 }
 
-/* Tooltip sections */
-.system-monitor-tooltip .section-header {
-    font-weight: bold;
-    color: #4CAF50;
-    margin-bottom: 2px;
+/* Graph canvas styling */
+.temp-graph-canvas {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    background-color: #2c2c2c;
 }
 
-.system-monitor-tooltip .metric-value {
-    color: #FFD700;
-    font-weight: bold;
+/* Dark theme adaptations */
+.cinnamon-panel-dark .temp-label {
+    color: #ffffff;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
 }
 
-.system-monitor-tooltip .status-normal {
-    color: #4CAF50;
+.cinnamon-panel-dark .temp-graph-canvas {
+    border-color: rgba(255, 255, 255, 0.3);
+    background-color: #1a1a1a;
 }
 
-.system-monitor-tooltip .status-warning {
-    color: #FF9800;
+.cinnamon-panel-dark .temp-graph-container {
+    background-color: rgba(0, 0, 0, 0.2);
 }
 
-.system-monitor-tooltip .status-critical {
-    color: #F44336;
+.cinnamon-panel-dark .temp-graph-container:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Light theme adaptations */
+.cinnamon-panel-light .temp-label {
+    color: #333333;
+    text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
+}
+
+.cinnamon-panel-light .temp-graph-canvas {
+    border-color: rgba(0, 0, 0, 0.3);
+    background-color: #f0f0f0;
+}
+
+.cinnamon-panel-light .temp-graph-container {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.cinnamon-panel-light .temp-graph-container:hover {
+    background-color: rgba(0, 0, 0, 0.1);
 }
 
 /* High contrast mode support */
 @media (prefers-contrast: high) {
-    .system-monitor-normal {
-        color: #00FF00;
-        font-weight: bold;
-    }
-    
-    .system-monitor-warning {
-        color: #FFFF00;
+    .temp-label {
         font-weight: bold;
         text-decoration: underline;
     }
     
-    .system-monitor-critical {
-        color: #FF0000;
-        font-weight: bold;
-        text-decoration: underline;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+    .temp-graph-canvas {
+        border-width: 2px;
+    }
+    
+    .temp-graph-container {
+        border: 1px solid;
     }
 }
 
-/* Dark theme adaptations */
-.cinnamon-panel-dark .system-monitor-normal {
-    color: #66BB6A;
+/* Responsive sizing for different panel heights */
+.temp-monitor-main[panel-height="small"] .temp-label {
+    font-size: 8px;
 }
 
-.cinnamon-panel-dark .system-monitor-warning {
-    color: #FFB74D;
+.temp-monitor-main[panel-height="large"] .temp-label {
+    font-size: 12px;
+}
+/*
+ History Dialog Styling */
+.history-dialog-content {
+    padding: 20px;
+    spacing: 15px;
+    min-width: 400px;
+    max-width: 800px;
 }
 
-.cinnamon-panel-dark .system-monitor-critical {
-    color: #EF5350;
+.history-dialog-title {
+    font-size: 16px;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 10px;
 }
 
-/* Light theme adaptations */
-.cinnamon-panel-light .system-monitor-normal {
-    color: #2E7D32;
+.history-graph-canvas {
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    margin: 5px;
 }
 
-.cinnamon-panel-light .system-monitor-warning {
-    color: #F57C00;
+.history-graph-label {
+    font-size: 12px;
+    font-weight: bold;
+    text-align: center;
+    margin: 5px 0;
 }
 
-.cinnamon-panel-light .system-monitor-critical {
-    color: #C62828;
-}
-/
-* About Dialog Styling */
+/* About Dialog Styling */
 .about-dialog-content {
     padding: 20px;
     spacing: 15px;
@@ -212,18 +162,8 @@
     line-height: 1.4;
 }
 
-.about-dialog-features {
-    font-size: 12px;
-    color: #555555;
-    line-height: 1.5;
-    text-align: left;
-    background-color: rgba(0, 0, 0, 0.05);
-    padding: 12px;
-    border-radius: 6px;
-    border-left: 3px solid #4CAF50;
-}
-
-/* Dark theme support for about dialog */
+/* Dark theme support for dialogs */
+.cinnamon-panel-dark .history-dialog-title,
 .cinnamon-panel-dark .about-dialog-title {
     color: #66BB6A;
 }
@@ -232,12 +172,7 @@
     color: #AAAAAA;
 }
 
-.cinnamon-panel-dark .about-dialog-description {
+.cinnamon-panel-dark .about-dialog-description,
+.cinnamon-panel-dark .history-graph-label {
     color: #DDDDDD;
-}
-
-.cinnamon-panel-dark .about-dialog-features {
-    color: #CCCCCC;
-    background-color: rgba(255, 255, 255, 0.05);
-    border-left-color: #66BB6A;
 }
