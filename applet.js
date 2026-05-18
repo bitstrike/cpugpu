@@ -25,6 +25,9 @@ TemperatureMonitorApplet.prototype = {
         this.instance_id = instance_id;
         this.panel_height = panel_height;
         
+        // Install icon to user icon theme if not present
+        this._installIcon();
+        
         // Initialize settings
         this.settings = new Settings.AppletSettings(this, metadata.uuid, instance_id);
         this.settings.bind("graph-width", "graphWidth", this.on_settings_changed);
@@ -62,11 +65,22 @@ TemperatureMonitorApplet.prototype = {
         
         // Start monitoring
         this._startMonitoring();
-        
-        // Add "About" to the applet context menu (right-click)
-        let aboutItem = new PopupMenu.PopupMenuItem("About");
-        aboutItem.connect('activate', Lang.bind(this, this._showAboutDialog));
-        this._applet_context_menu.addMenuItem(aboutItem);
+    },
+    
+    _installIcon: function() {
+        let iconName = "cpugpu-bitcrash";
+        let destDir = GLib.get_home_dir() + "/.local/share/icons/hicolor/scalable/apps";
+        let destPath = destDir + "/" + iconName + ".svg";
+        if (!GLib.file_test(destPath, GLib.FileTest.EXISTS)) {
+            let srcPath = this.metadata.path + "/icon.svg";
+            if (GLib.file_test(srcPath, GLib.FileTest.EXISTS)) {
+                GLib.mkdir_with_parents(destDir, 0o755);
+                let [res, contents] = GLib.file_get_contents(srcPath);
+                if (res) {
+                    GLib.file_set_contents(destPath, contents);
+                }
+            }
+        }
     },
     
     _createUI: function() {
@@ -177,52 +191,6 @@ TemperatureMonitorApplet.prototype = {
             return true;
         }
         return false;
-    },
-    
-    _showAboutDialog: function() {
-        let dialog = new ModalDialog.ModalDialog();
-        
-        let contentBox = new St.BoxLayout({
-            vertical: true,
-            style_class: 'about-dialog-content'
-        });
-        
-        // Load icon.svg from applet directory
-        let iconPath = this.metadata.path + "/icon.svg";
-        let icon = new St.Icon({
-            icon_size: 64,
-            icon_type: St.IconType.FULLCOLOR,
-            style_class: 'about-dialog-icon'
-        });
-        icon.set_gicon(Gio.FileIcon.new(Gio.File.new_for_path(iconPath)));
-        contentBox.add(icon, {x_align: St.Align.MIDDLE});
-        
-        let title = new St.Label({
-            text: this.metadata.name,
-            style_class: 'about-dialog-title'
-        });
-        contentBox.add(title, {x_align: St.Align.MIDDLE});
-        
-        let version = new St.Label({
-            text: "v" + this.metadata.version,
-            style_class: 'about-dialog-version'
-        });
-        contentBox.add(version, {x_align: St.Align.MIDDLE});
-        
-        let description = new St.Label({
-            text: this.metadata.description,
-            style_class: 'about-dialog-description'
-        });
-        contentBox.add(description, {x_align: St.Align.MIDDLE});
-        
-        dialog.contentLayout.add(contentBox);
-        
-        dialog.setButtons([{
-            label: "Close",
-            action: function() { dialog.close(); }
-        }]);
-        
-        dialog.open();
     },
     
     _startMonitoring: function() {
