@@ -1,6 +1,7 @@
 # CPU/GPU Temperature Monitor - Cinnamon Applet
 
 Real-time CPU and GPU temperature monitoring with scrolling line graphs for the Cinnamon desktop panel.
+This was developed on a system with a single Nvidia GPU. I don't know if it will work on systems with multiple GPUs (my laptop has issues to debug yet)
 
 ## Screenshot
 
