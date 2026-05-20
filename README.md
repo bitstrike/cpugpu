@@ -1,88 +1,60 @@
-# System Monitor Cinnamon Applet
+# CPU/GPU Temperature Monitor - Cinnamon Applet
 
-A real-time system monitoring applet for the Cinnamon desktop environment that displays CPU and GPU temperature in the panel.
+Real-time CPU and GPU temperature monitoring with scrolling line graphs for the Cinnamon desktop panel.
 
 ## Screenshot
 
 ![Applet in Action](in-action.png)
 
-*The applet running in the Cinnamon panel, showing real-time CPU and GPU monitoring*
-
 ## Features
 
-- Real-time CPU/GPU temps with history
-- Customizable refresh intervals
-- Visual threshold indicators
-- Configurable appearance and behavior
+- Scrolling Cairo line graphs for CPU and GPU temperature
+- VRAM usage bar (green-to-red gradient) on the GPU graph
+- Tooltip showing current temps and VRAM usage
+- Popup with full-history graphs on left-click
+- Configurable graph dimensions, colors, sample rate, and temperature range
+- Fahrenheit/Celsius support
+- Automatic panel height fitting
+- Sensor backends: thermal_zone sysfs, lm-sensors, nvidia-smi, AMD hwmon
 
 ## Installation
 
-### Method 1: Manual Installation (Recommended)
-
-1. **Create the applet directory:**
-   ```bash
-   mkdir -p ~/.local/share/cinnamon/applets/cpugpu@bitcrash
-   ```
-
-2. **Copy all applet files:**
-   ```bash
-   cp applet.js metadata.json settings-schema.json stylesheet.css icon.svg ~/.local/share/cinnamon/applets/cpugpu@bitcrash/
-   ```
-
-3. **Set proper permissions:**
-   ```bash
-   chmod +x ~/.local/share/cinnamon/applets/cpugpu@bitcrash/applet.js
-   ```
-
-4. **Restart Cinnamon:**
-   - Press `Alt+F2`, type `r`, and press Enter
-   - Or log out and back in
-
-5. **Enable the applet:**
-   - Right-click on your panel → "Applets"
-   - Find "System Monitor" in the list and enable it
-   - The applet will appear in your panel
-
-### Method 2: From Current Directory
-
-If you're in the applet source directory:
 ```bash
-cp -r . ~/.local/share/cinnamon/applets/cpugpu@bitcrash/
-chmod +x ~/.local/share/cinnamon/applets/cpugpu@bitcrash/applet.js
+git clone https://github.com/bitstrike/cpugpu
+cd cpugpu
+ln -sf "$(pwd)/cpugpu@bitcrash" ~/.local/share/cinnamon/applets/cpugpu@bitcrash
 ```
 
-### Troubleshooting
-
-- Check Cinnamon logs: `journalctl -f | grep cinnamon`
-- Verify the directory name matches the UUID: `cpugpu@bitcrash`
-- Ensure all required files are present in the applet directory
-
-## Files Structure
-
-- `applet.js` - Main applet implementation
-- `metadata.json` - Applet metadata and compatibility information
-- `settings-schema.json` - Configuration options schema
-- `stylesheet.css` - Visual styling for the applet
-- `README.md` - This documentation file
+Then restart Cinnamon (Alt+F2, type `r`, Enter) and enable "CPU/GPU Temperature Monitor" in Panel > Applets.
 
 ## Configuration
 
-Right-click the applet in the panel to access configuration options:
+Right-click the applet and select "Configure" to adjust:
 
-- **Refresh Interval**: How often to update system statistics (500-5000ms)
-- **Display Format**: Choose between percentage, graph, or both
-- **Show GPU**: Toggle GPU information display
-- **Color Theme**: Select color scheme for usage indicators
-- **Thresholds**: Set warning and critical usage levels
-- **Custom Colors**: Define custom colors when using custom theme
+- Graph width and height (or auto-fit to panel)
+- Sample rate and time range
+- CPU/GPU line colors, background, and grid colors
+- Temperature range (Y-axis min/max, entered in your chosen unit)
+- Fahrenheit/Celsius toggle
+- History buffer size
 
 ## Requirements
 
-- Cinnamon Desktop Environment 4.0+
-- Ubuntu 22.04 or compatible Linux distribution
-- Access to `/proc/stat` and `/proc/cpuinfo` for CPU monitoring
-- GPU monitoring tools (nvidia-smi for NVIDIA, etc.) for GPU statistics
+- Cinnamon 4.0+
+- For GPU temperature: `nvidia-smi` (NVIDIA) or AMD hwmon sysfs
+- For CPU temperature: `/sys/class/thermal/` or `lm-sensors`
 
-## Development
+## Files
 
-This applet follows Cinnamon's standard applet architecture and uses the Applet.TextIconApplet base class for panel integration.
+```
+cpugpu@bitcrash/        (applet - symlink to ~/.local/share/cinnamon/applets/)
+  applet.js             Main applet code
+  metadata.json         Applet metadata
+  settings-schema.json  Configuration schema
+  stylesheet.css        Theme-compatible styles
+  icon.svg              Applet icon
+```
+
+## License
+
+See [LICENSE](LICENSE).
