@@ -1,14 +1,16 @@
 #!/bin/bash
+# Filename: test-vram.sh
 # Allocate VRAM using CUDA to test the applet's VRAM bar.
 # Requires: nvidia-smi, python3, pytorch (or uses fallback with vulkan-tools)
 #
-# Usage: ./test-vram.sh [megabytes]
-# Default: 4000 MB (~25% of 16GB)
+# Usage: ./test-vram.sh [megabytes] [gpu_index]
+# Default: 4000 MB (~25% of 16GB) on GPU 0
 # Press Ctrl+C to release and exit.
 
 MB=${1:-4000}
+GPU=${2:-0}
 
-echo "Attempting to allocate ${MB} MB of VRAM..."
+echo "Attempting to allocate ${MB} MB of VRAM on GPU ${GPU}..."
 echo "Press Ctrl+C to release and exit."
 echo ""
 
@@ -26,7 +28,7 @@ signal.signal(signal.SIGINT, cleanup)
 
 mb = ${MB}
 elements = (mb * 1024 * 1024) // 4  # float32 = 4 bytes
-t = torch.zeros(elements, dtype=torch.float32, device='cuda')
+t = torch.zeros(elements, dtype=torch.float32, device='cuda:${GPU}')
 print(f'Allocated {mb} MB on GPU')
 print('Holding... Ctrl+C to release')
 signal.pause()
@@ -50,7 +52,7 @@ libcuda = ctypes.CDLL('libcuda.so.1')
 libcuda.cuInit(0)
 
 device = ctypes.c_int()
-libcuda.cuDeviceGet(ctypes.byref(device), 0)
+libcuda.cuDeviceGet(ctypes.byref(device), ${GPU})
 
 context = ctypes.c_void_p()
 libcuda.cuCtxCreate_v2(ctypes.byref(context), 0, device)
