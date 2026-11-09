@@ -1,3 +1,4 @@
+// Filename: applet.js
 const Applet = imports.ui.applet;
 const St = imports.gi.St;
 const Cairo = imports.cairo;
@@ -10,6 +11,51 @@ const PopupMenu = imports.ui.popupMenu;
 const ModalDialog = imports.ui.modalDialog;
 const Tooltips = imports.ui.tooltips;
 const ByteArray = imports.byteArray;
+
+// Maximum number of GPUs tracked; any additional GPUs are ignored
+const MAX_GPUS = 4;
+
+// GPU vendor identifiers (SIMULATED is used when no sensor is found)
+const VENDOR_NVIDIA = "nvidia";
+const VENDOR_AMD = "amd";
+const VENDOR_SIMULATED = "simulated";
+
+// Linux PCI vendor id for AMD, as exposed in sysfs
+const AMD_PCI_VENDOR_ID = "0x1002";
+const DRM_PATH = "/sys/class/drm";
+const DRM_CARD_REGEX = /^card\d+$/;
+
+const NVIDIA_QUERY_CMD = "nvidia-smi --query-gpu=index,temperature.gpu,memory.used,memory.total --format=csv,noheader,nounits";
+const NVIDIA_FIELD_COUNT = 4;
+
+// Settings key / property name pairs for per-GPU line colors (index = GPU index, length = MAX_GPUS)
+const GPU_COLOR_SETTINGS = [
+    ["gpu-color", "gpuColor"],
+    ["gpu1-color", "gpu1Color"],
+    ["gpu2-color", "gpu2Color"],
+    ["gpu3-color", "gpu3Color"]
+];
+
+// Unit conversions
+const MILLIDEGREES_PER_DEGREE = 1000;
+const BYTES_PER_MIB = 1024 * 1024;
+const MIB_PER_GIB = 1024;
+
+// Layout and drawing
+const GPU_LINE_WIDTH = 2;
+const CANVAS_SPACING = 5;
+const POPUP_GRAPH_WIDTH = 300;
+const POPUP_GRAPH_HEIGHT = 200;
+const PANEL_VRAM_BAR_WIDTH = 8;
+const POPUP_VRAM_BAR_WIDTH = 14;
+const VRAM_BAR_GAP = 2;
+const VRAM_TRACK_ALPHA = 0.15;
+const VRAM_FILL_ALPHA = 0.6;
+const PANEL_LABEL_X = 5;
+const PANEL_LABEL_FIRST_Y = 15;
+const PANEL_LABEL_LINE_HEIGHT = 14;
+const POPUP_LABEL_FIRST_Y = 18;
+const POPUP_LABEL_LINE_HEIGHT = 16;
 
 function TemperatureMonitorApplet(metadata, orientation, panel_height, instance_id) {
     this._init(metadata, orientation, panel_height, instance_id);
@@ -36,7 +82,9 @@ TemperatureMonitorApplet.prototype = {
         this.settings.bind("time-range", "timeRange", this.on_settings_changed);
         this.settings.bind("sample-rate", "sampleRate", this.on_settings_changed);
         this.settings.bind("cpu-color", "cpuColor", this.on_settings_changed);
-        this.settings.bind("gpu-color", "gpuColor", this.on_settings_changed);
+        for (let [key, prop] of GPU_COLOR_SETTINGS) {
+            this.settings.bind(key, prop, this.on_settings_changed);
+        }
         this.settings.bind("bg-color", "bgColor", this.on_settings_changed);
         this.settings.bind("grid-color", "gridColor", this.on_settings_changed);
         this.settings.bind("use-fahrenheit", "useFahrenheit", this.on_settings_changed);
@@ -46,10 +94,8 @@ TemperatureMonitorApplet.prototype = {
         
         // Data storage
         this.cpuData = [];
-        this.gpuData = [];
-        this.gpuVramFraction = 0; // 0.0 to 1.0, current VRAM usage
-        this.gpuVramUsed = 0;    // MiB
-        this.gpuVramTotal = 0;   // MiB
+        // Per-GPU state: {vendor, label, data[], vram:{used,total,fraction}, ...sensor info}
+        this.gpus = this._detectGpus();
         this.maxDataPoints = Math.floor(this.timeRange / this.sampleRate);
         this.maxBufferSize = this.bufferSize; // Use configured buffer size
         this.pendingBufferSize = null; // Track pending buffer size changes
@@ -109,10 +155,21 @@ TemperatureMonitorApplet.prototype = {
         });
         this.gpuCanvas.connect('repaint', Lang.bind(this, this._drawGpuGraph));
         
+        // VRAM canvas: one vertical bar per GPU
+        this.vramCanvas = new St.DrawingArea({
+            width: this._vramStripWidth(PANEL_VRAM_BAR_WIDTH),
+            height: effectiveHeight,
+            style_class: 'temp-graph-canvas'
+        });
+        this.vramCanvas.connect('repaint', Lang.bind(this, function(canvas) {
+            this._drawVramBars(canvas, PANEL_VRAM_BAR_WIDTH);
+        }));
+        
         // Add canvases to container
         this.mainBox.add(this.cpuCanvas);
-        this.mainBox.add(new St.Widget({width: 5})); // Spacer
+        this.mainBox.add(new St.Widget({width: CANVAS_SPACING})); // Spacer
         this.mainBox.add(this.gpuCanvas);
+        this.mainBox.add(this.vramCanvas);
         
         this.actor.add_actor(this.mainBox);
         
@@ -132,6 +189,9 @@ TemperatureMonitorApplet.prototype = {
         
         this.gpuCanvas.set_reactive(true);
         this.gpuCanvas.connect('button-press-event', Lang.bind(this, this._onButtonPress));
+        
+        this.vramCanvas.set_reactive(true);
+        this.vramCanvas.connect('button-press-event', Lang.bind(this, this._onButtonPress));
     },
     
     _createPopupMenu: function() {
@@ -149,30 +209,41 @@ TemperatureMonitorApplet.prototype = {
         
         // Large CPU graph
         this.popupCpuCanvas = new St.DrawingArea({
-            width: 300,
-            height: 200,
+            width: POPUP_GRAPH_WIDTH,
+            height: POPUP_GRAPH_HEIGHT,
             style_class: 'temp-graph-canvas'
         });
         this.popupCpuCanvas.connect('repaint', Lang.bind(this, function(canvas) {
-            this._drawPopupGraph(canvas, this.cpuData, this.cpuColor, "CPU");
+            this._drawPopupGraph(canvas, [{data: this.cpuData, color: this.cpuColor, label: "CPU"}]);
         }));
         
         // Spacer
         let spacer = new St.Widget({width: 10});
         
-        // Large GPU graph
+        // Large GPU graph (all GPUs overlaid)
         this.popupGpuCanvas = new St.DrawingArea({
-            width: 300,
-            height: 200,
+            width: POPUP_GRAPH_WIDTH,
+            height: POPUP_GRAPH_HEIGHT,
             style_class: 'temp-graph-canvas'
         });
         this.popupGpuCanvas.connect('repaint', Lang.bind(this, function(canvas) {
-            this._drawPopupGraph(canvas, this.gpuData, this.gpuColor, "GPU");
+            this._drawPopupGraph(canvas, this._gpuSeries());
+        }));
+        
+        // Large VRAM bars
+        this.popupVramCanvas = new St.DrawingArea({
+            width: this._vramStripWidth(POPUP_VRAM_BAR_WIDTH),
+            height: POPUP_GRAPH_HEIGHT,
+            style_class: 'temp-graph-canvas'
+        });
+        this.popupVramCanvas.connect('repaint', Lang.bind(this, function(canvas) {
+            this._drawVramBars(canvas, POPUP_VRAM_BAR_WIDTH);
         }));
         
         graphsBox.add(this.popupCpuCanvas);
         graphsBox.add(spacer);
         graphsBox.add(this.popupGpuCanvas);
+        graphsBox.add(this.popupVramCanvas);
         
         popupBox.add(graphsBox);
         
@@ -187,6 +258,7 @@ TemperatureMonitorApplet.prototype = {
                 // Redraw popup graphs when opened
                 this.popupCpuCanvas.queue_repaint();
                 this.popupGpuCanvas.queue_repaint();
+                this.popupVramCanvas.queue_repaint();
             }
             return true;
         }
@@ -209,23 +281,19 @@ TemperatureMonitorApplet.prototype = {
             this.cpuData.shift();
         }
         
-        // Read GPU temperature (always store in Celsius internally)
-        let gpuTemp = this._getGpuTemperature();
-        this.gpuData.push(gpuTemp);
-        
-        // Maintain buffer of 1000 readings
-        if (this.gpuData.length > this.maxBufferSize) {
-            this.gpuData.shift();
-        }
+        // Read all GPU temperatures and VRAM (temps stored in Celsius internally)
+        this._updateGpus();
         
         // Redraw graphs
         this.cpuCanvas.queue_repaint();
         this.gpuCanvas.queue_repaint();
+        this.vramCanvas.queue_repaint();
         
         // Redraw popup graphs if menu is open
         if (this.menu && this.menu.isOpen) {
             this.popupCpuCanvas.queue_repaint();
             this.popupGpuCanvas.queue_repaint();
+            this.popupVramCanvas.queue_repaint();
         }
         
         // Update tooltip
@@ -236,25 +304,31 @@ TemperatureMonitorApplet.prototype = {
     
     _updateTooltip: function() {
         let cpuTemp = this.cpuData.length > 0 ? this.cpuData[this.cpuData.length - 1] : 0;
-        let gpuTemp = this.gpuData.length > 0 ? this.gpuData[this.gpuData.length - 1] : 0;
         let unit = this.useFahrenheit ? "\u00B0F" : "\u00B0C";
         
         if (this.useFahrenheit) {
             cpuTemp = this._celsiusToFahrenheit(cpuTemp);
-            gpuTemp = this._celsiusToFahrenheit(gpuTemp);
         }
         
-        let text = "CPU: " + cpuTemp.toFixed(0) + unit +
-                   "  GPU: " + gpuTemp.toFixed(0) + unit;
+        let lines = ["CPU: " + cpuTemp.toFixed(0) + unit];
         
-        if (this.gpuVramTotal > 0) {
-            let usedGB = (this.gpuVramUsed / 1024).toFixed(1);
-            let totalGB = (this.gpuVramTotal / 1024).toFixed(0);
-            let pct = Math.round(this.gpuVramFraction * 100);
-            text += "  VRAM: " + usedGB + "/" + totalGB + "GB (" + pct + "%)";
+        // One line per GPU: label, temperature, and VRAM when available
+        for (let gpu of this.gpus) {
+            let gpuTemp = gpu.data.length > 0 ? gpu.data[gpu.data.length - 1] : 0;
+            if (this.useFahrenheit) {
+                gpuTemp = this._celsiusToFahrenheit(gpuTemp);
+            }
+            let line = gpu.label + ": " + gpuTemp.toFixed(0) + unit;
+            if (gpu.vram.total > 0) {
+                let usedGB = (gpu.vram.used / MIB_PER_GIB).toFixed(1);
+                let totalGB = (gpu.vram.total / MIB_PER_GIB).toFixed(0);
+                let pct = Math.round(gpu.vram.fraction * 100);
+                line += "  VRAM: " + usedGB + "/" + totalGB + "GB (" + pct + "%)";
+            }
+            lines.push(line);
         }
         
-        this._tooltip.set_text(text);
+        this._tooltip.set_text(lines.join("\n"));
     },
     
     _getCpuTemperature: function() {
@@ -292,81 +366,198 @@ TemperatureMonitorApplet.prototype = {
         return 45 + Math.random() * 15;
     },
     
-    _getGpuTemperature: function() {
-        let temp = 0;
-        
-        // Method 1: NVIDIA GPU (get temp and VRAM in one call)
+    _readFile: function(path) {
+        // Returns trimmed file contents, or null if unreadable
         try {
-            let [res, out] = GLib.spawn_command_line_sync(
-                "nvidia-smi --query-gpu=temperature.gpu,memory.used,memory.total --format=csv,noheader,nounits"
-            );
-            if (res && out) {
-                let parts = ByteArray.toString(out).trim().split(',');
-                temp = parseFloat(parts[0]);
-                if (!isNaN(temp) && temp > 0) {
-                    let used = parseFloat(parts[1]);
-                    let total = parseFloat(parts[2]);
-                    if (!isNaN(used) && !isNaN(total) && total > 0) {
-                        this.gpuVramUsed = used;
-                        this.gpuVramTotal = total;
-                        this.gpuVramFraction = used / total;
-                    }
-                    return temp;
-                }
-            }
-        } catch (e) {}
-        
-        // Method 2: AMD GPU
-        try {
-            let hwmonPath = '/sys/class/drm/card0/device/hwmon';
-            if (GLib.file_test(hwmonPath, GLib.FileTest.EXISTS)) {
-                let dir = Gio.File.new_for_path(hwmonPath);
-                let enumerator = dir.enumerate_children('standard::name', 
-                    Gio.FileQueryInfoFlags.NONE, null);
-                let info;
-                while ((info = enumerator.next_file(null)) != null) {
-                    let tempFile = hwmonPath + '/' + info.get_name() + '/temp1_input';
-                    if (GLib.file_test(tempFile, GLib.FileTest.EXISTS)) {
-                        let [res, out] = GLib.file_get_contents(tempFile);
-                        if (res) {
-                            temp = parseInt(ByteArray.toString(out)) / 1000;
-                            if (!isNaN(temp) && temp > 0) {
-                                this._getAmdVram();
-                                return temp;
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e) {}
-        
-        // Return simulated data if no sensor found
-        return 50 + Math.random() * 20;
+            if (!GLib.file_test(path, GLib.FileTest.EXISTS)) return null;
+            let [res, out] = GLib.file_get_contents(path);
+            return res ? ByteArray.toString(out).trim() : null;
+        } catch (e) {
+            return null;
+        }
     },
     
-    _getAmdVram: function() {
+    _findHwmonTemp: function(hwmonPath) {
+        // Returns the first hwmon temp1_input path under hwmonPath, or null
         try {
-            let usedFile = '/sys/class/drm/card0/device/mem_info_vram_used';
-            let totalFile = '/sys/class/drm/card0/device/mem_info_vram_total';
-            if (GLib.file_test(usedFile, GLib.FileTest.EXISTS) &&
-                GLib.file_test(totalFile, GLib.FileTest.EXISTS)) {
-                let [r1, usedOut] = GLib.file_get_contents(usedFile);
-                let [r2, totalOut] = GLib.file_get_contents(totalFile);
-                if (r1 && r2) {
-                    let used = parseInt(ByteArray.toString(usedOut)) / (1024 * 1024);
-                    let total = parseInt(ByteArray.toString(totalOut)) / (1024 * 1024);
-                    if (total > 0) {
-                        this.gpuVramUsed = used;
-                        this.gpuVramTotal = total;
-                        this.gpuVramFraction = used / total;
-                    }
+            if (!GLib.file_test(hwmonPath, GLib.FileTest.EXISTS)) return null;
+            let dir = Gio.File.new_for_path(hwmonPath);
+            let enumerator = dir.enumerate_children('standard::name',
+                Gio.FileQueryInfoFlags.NONE, null);
+            let info;
+            while ((info = enumerator.next_file(null)) != null) {
+                let tempFile = hwmonPath + '/' + info.get_name() + '/temp1_input';
+                if (GLib.file_test(tempFile, GLib.FileTest.EXISTS)) return tempFile;
+            }
+        } catch (e) {}
+        return null;
+    },
+    
+    _detectGpus: function() {
+        // Runs once at startup. Builds the per-GPU state list (capped at MAX_GPUS).
+        let gpus = [];
+        
+        // NVIDIA: nvidia-smi prints one csv line per GPU
+        try {
+            let [res, out] = GLib.spawn_command_line_sync(NVIDIA_QUERY_CMD);
+            if (res && out) {
+                for (let line of ByteArray.toString(out).trim().split('\n')) {
+                    let parts = line.split(',');
+                    if (parts.length < NVIDIA_FIELD_COUNT) continue;
+                    gpus.push({vendor: VENDOR_NVIDIA, nvIndex: parseInt(parts[0])});
                 }
             }
         } catch (e) {}
+        
+        // AMD: enumerate drm cards, keep AMD ones that expose a hwmon temperature
+        try {
+            let drm = Gio.File.new_for_path(DRM_PATH);
+            let enumerator = drm.enumerate_children('standard::name',
+                Gio.FileQueryInfoFlags.NONE, null);
+            let cards = [];
+            let info;
+            while ((info = enumerator.next_file(null)) != null) {
+                let name = info.get_name();
+                if (DRM_CARD_REGEX.test(name)) cards.push(name);
+            }
+            cards.sort();
+            for (let card of cards) {
+                let devPath = DRM_PATH + '/' + card + '/device';
+                if (this._readFile(devPath + '/vendor') !== AMD_PCI_VENDOR_ID) continue;
+                let tempPath = this._findHwmonTemp(devPath + '/hwmon');
+                if (!tempPath) continue;
+                gpus.push({
+                    vendor: VENDOR_AMD,
+                    tempPath: tempPath,
+                    vramUsedPath: devPath + '/mem_info_vram_used',
+                    vramTotalPath: devPath + '/mem_info_vram_total'
+                });
+            }
+        } catch (e) {}
+        
+        if (gpus.length > MAX_GPUS) {
+            global.log(this.metadata.uuid + ": " + gpus.length +
+                " GPUs detected, only the first " + MAX_GPUS + " are shown");
+            gpus = gpus.slice(0, MAX_GPUS);
+        }
+        
+        // No sensor found: keep one simulated GPU so the graph still draws
+        if (gpus.length === 0) {
+            gpus.push({vendor: VENDOR_SIMULATED});
+        }
+        
+        gpus.forEach(function(gpu, i) {
+            gpu.label = "GPU" + i;
+            gpu.data = [];
+            gpu.vram = {used: 0, total: 0, fraction: 0}; // MiB
+        });
+        return gpus;
+    },
+    
+    _queryNvidia: function() {
+        // Returns {gpuIndex: {temp, used, total}} from a single nvidia-smi call
+        let readings = {};
+        if (!this.gpus.some(function(gpu) { return gpu.vendor === VENDOR_NVIDIA; })) {
+            return readings;
+        }
+        try {
+            let [res, out] = GLib.spawn_command_line_sync(NVIDIA_QUERY_CMD);
+            if (res && out) {
+                for (let line of ByteArray.toString(out).trim().split('\n')) {
+                    let parts = line.split(',');
+                    if (parts.length < NVIDIA_FIELD_COUNT) continue;
+                    readings[parseInt(parts[0])] = {
+                        temp: parseFloat(parts[1]),
+                        used: parseFloat(parts[2]),
+                        total: parseFloat(parts[3])
+                    };
+                }
+            }
+        } catch (e) {}
+        return readings;
+    },
+    
+    _setVram: function(gpu, used, total) {
+        if (!isNaN(used) && !isNaN(total) && total > 0) {
+            gpu.vram.used = used;
+            gpu.vram.total = total;
+            gpu.vram.fraction = used / total;
+        }
+    },
+    
+    _readAmdGpu: function(gpu) {
+        // Returns temperature in Celsius (or NaN) and refreshes VRAM
+        let temp = parseInt(this._readFile(gpu.tempPath)) / MILLIDEGREES_PER_DEGREE;
+        let used = parseInt(this._readFile(gpu.vramUsedPath)) / BYTES_PER_MIB;
+        let total = parseInt(this._readFile(gpu.vramTotalPath)) / BYTES_PER_MIB;
+        this._setVram(gpu, used, total);
+        return temp;
+    },
+    
+    _updateGpus: function() {
+        let nvidia = this._queryNvidia();
+        
+        for (let gpu of this.gpus) {
+            let temp = NaN;
+            if (gpu.vendor === VENDOR_NVIDIA) {
+                let reading = nvidia[gpu.nvIndex];
+                if (reading) {
+                    temp = reading.temp;
+                    this._setVram(gpu, reading.used, reading.total);
+                }
+            } else if (gpu.vendor === VENDOR_AMD) {
+                temp = this._readAmdGpu(gpu);
+            } else {
+                temp = 50 + Math.random() * 20;
+            }
+            
+            // On a failed read, repeat the last value so the graph stays continuous
+            if (isNaN(temp) || temp <= 0) {
+                temp = gpu.data.length > 0 ? gpu.data[gpu.data.length - 1] : 0;
+            }
+            
+            gpu.data.push(temp);
+            if (gpu.data.length > this.maxBufferSize) {
+                gpu.data.shift();
+            }
+        }
+    },
+    
+    _gpuColor: function(index) {
+        return this[GPU_COLOR_SETTINGS[index][1]];
+    },
+    
+    _gpuSeries: function() {
+        return this.gpus.map(Lang.bind(this, function(gpu, i) {
+            return {data: gpu.data, color: this._gpuColor(i), label: gpu.label};
+        }));
+    },
+    
+    _vramStripWidth: function(barWidth) {
+        let count = this.gpus.length;
+        return count * barWidth + (count - 1) * VRAM_BAR_GAP;
     },
     
     _drawCpuGraph: function(canvas) {
         this._drawGraph(canvas, this.cpuData, this.cpuColor, "CPU");
+    },
+    
+    _strokeSeries: function(cr, data, colorStr, height, xStep) {
+        // Draws one temperature polyline, scaled to the configured Y range
+        if (data.length < 2) return;
+        let line = this._parseColor(colorStr);
+        cr.setSourceRGBA(line.r, line.g, line.b, line.a);
+        cr.setLineWidth(GPU_LINE_WIDTH);
+        for (let i = 0; i < data.length; i++) {
+            let temp = this.useFahrenheit ? this._celsiusToFahrenheit(data[i]) : data[i];
+            let y = height - ((temp - this.tempMin) / (this.tempMax - this.tempMin)) * height;
+            if (i === 0) {
+                cr.moveTo(0, y);
+            } else {
+                cr.lineTo(i * xStep, y);
+            }
+        }
+        cr.stroke();
     },
     
     _drawGpuGraph: function(canvas) {
@@ -376,16 +567,11 @@ TemperatureMonitorApplet.prototype = {
         // Parse colors
         let bg = this._parseColor(this.bgColor);
         let grid = this._parseColor(this.gridColor);
-        let line = this._parseColor(this.gpuColor);
         
         // Draw background
         cr.setSourceRGBA(bg.r, bg.g, bg.b, bg.a);
         cr.rectangle(0, 0, width, height);
         cr.fill();
-        
-        // Temperature range (user enters in their chosen unit directly)
-        let minTemp = this.tempMin;
-        let maxTemp = this.tempMax;
         
         // Draw grid
         cr.setSourceRGBA(grid.r, grid.g, grid.b, grid.a);
@@ -402,51 +588,57 @@ TemperatureMonitorApplet.prototype = {
         }
         cr.stroke();
         
-        // Draw VRAM usage bar (gradient green->red, translucent)
-        if (this.gpuVramFraction > 0) {
-            let barHeight = Math.round(height * this.gpuVramFraction);
+        // Draw one temperature polyline per GPU
+        let xStep = width / (this.maxDataPoints - 1);
+        this.gpus.forEach(Lang.bind(this, function(gpu, i) {
+            this._strokeSeries(cr, gpu.data.slice(-this.maxDataPoints),
+                this._gpuColor(i), height, xStep);
+        }));
+        
+        // Draw current temperature per GPU (white for one GPU, GPU color for several)
+        cr.selectFontFace("Sans", Cairo.FontSlant.NORMAL, Cairo.FontWeight.BOLD);
+        cr.setFontSize(12);
+        let unit = this.useFahrenheit ? "\u00B0F" : "\u00B0C";
+        this.gpus.forEach(Lang.bind(this, function(gpu, i) {
+            if (gpu.data.length === 0) return;
+            let c = this.gpus.length > 1 ? this._parseColor(this._gpuColor(i)) : {r: 1, g: 1, b: 1};
+            cr.setSourceRGBA(c.r, c.g, c.b, 0.9);
+            let latest = gpu.data[gpu.data.length - 1];
+            let temp = this.useFahrenheit ? this._celsiusToFahrenheit(latest) : latest;
+            cr.moveTo(PANEL_LABEL_X, PANEL_LABEL_FIRST_Y + i * PANEL_LABEL_LINE_HEIGHT);
+            cr.showText(temp.toFixed(1) + unit);
+        }));
+        
+        cr.$dispose();
+    },
+    
+    _drawVramBars: function(canvas, barWidth) {
+        // One vertical bar per GPU, filled from the bottom by VRAM fraction
+        let cr = canvas.get_context();
+        let [width, height] = canvas.get_surface_size();
+        
+        let bg = this._parseColor(this.bgColor);
+        cr.setSourceRGBA(bg.r, bg.g, bg.b, bg.a);
+        cr.rectangle(0, 0, width, height);
+        cr.fill();
+        
+        this.gpus.forEach(Lang.bind(this, function(gpu, i) {
+            let c = this._parseColor(this._gpuColor(i));
+            let x = i * (barWidth + VRAM_BAR_GAP);
             
-            // Draw gradient manually as horizontal slices
-            for (let row = 0; row < barHeight; row++) {
-                // t=0 at bottom (green), t=1 at top (red)
-                let t = row / barHeight;
-                let r = t * 0.8;
-                let g = (1 - t) * 0.8;
-                cr.setSourceRGBA(r, g, 0, 0.3);
-                cr.rectangle(0, height - 1 - row, width, 1);
+            // Full-height track
+            cr.setSourceRGBA(c.r, c.g, c.b, VRAM_TRACK_ALPHA);
+            cr.rectangle(x, 0, barWidth, height);
+            cr.fill();
+            
+            // Used portion
+            let fillHeight = Math.round(height * gpu.vram.fraction);
+            if (fillHeight > 0) {
+                cr.setSourceRGBA(c.r, c.g, c.b, VRAM_FILL_ALPHA);
+                cr.rectangle(x, height - fillHeight, barWidth, fillHeight);
                 cr.fill();
             }
-        }
-        
-        // Draw temperature polyline
-        let displayData = this.gpuData.slice(-this.maxDataPoints);
-        if (displayData.length > 1) {
-            cr.setSourceRGBA(line.r, line.g, line.b, line.a);
-            cr.setLineWidth(2);
-            
-            let xStep = width / (this.maxDataPoints - 1);
-            let firstTemp = this.useFahrenheit ? this._celsiusToFahrenheit(displayData[0]) : displayData[0];
-            cr.moveTo(0, height - ((firstTemp - minTemp) / (maxTemp - minTemp)) * height);
-            
-            for (let i = 1; i < displayData.length; i++) {
-                let x = i * xStep;
-                let temp = this.useFahrenheit ? this._celsiusToFahrenheit(displayData[i]) : displayData[i];
-                let y = height - ((temp - minTemp) / (maxTemp - minTemp)) * height;
-                cr.lineTo(x, y);
-            }
-            cr.stroke();
-        }
-        
-        // Draw current temperature text
-        if (this.gpuData.length > 0) {
-            cr.setSourceRGBA(1, 1, 1, 0.9);
-            cr.selectFontFace("Sans", Cairo.FontSlant.NORMAL, Cairo.FontWeight.BOLD);
-            cr.setFontSize(12);
-            let temp = this.useFahrenheit ? this._celsiusToFahrenheit(this.gpuData[this.gpuData.length - 1]) : this.gpuData[this.gpuData.length - 1];
-            let unit = this.useFahrenheit ? "\u00B0F" : "\u00B0C";
-            cr.moveTo(5, 15);
-            cr.showText(temp.toFixed(1) + unit);
-        }
+        }));
         
         cr.$dispose();
     },
@@ -525,14 +717,14 @@ TemperatureMonitorApplet.prototype = {
         cr.$dispose();
     },
     
-    _drawPopupGraph: function(canvas, data, color, label) {
+    _drawPopupGraph: function(canvas, series) {
+        // series: [{data, color, label}], all drawn on shared axes
         let cr = canvas.get_context();
         let [width, height] = canvas.get_surface_size();
         
         // Parse colors
         let bg = this._parseColor(this.bgColor);
         let grid = this._parseColor(this.gridColor);
-        let line = this._parseColor(color);
         
         // Draw background
         cr.setSourceRGBA(bg.r, bg.g, bg.b, bg.a);
@@ -575,39 +767,26 @@ TemperatureMonitorApplet.prototype = {
             cr.showText(tempLabel);
         }
         
-        // Use all buffer data for popup (full range)
-        let displayData = data;
-        
-        // Draw temperature graph
-        if (displayData.length > 1) {
-            cr.setSourceRGBA(line.r, line.g, line.b, line.a);
-            cr.setLineWidth(2);
-            
-            let xStep = width / (displayData.length - 1);
-            
-            // Convert first data point if using Fahrenheit
-            let firstTemp = this.useFahrenheit ? this._celsiusToFahrenheit(displayData[0]) : displayData[0];
-            cr.moveTo(0, height - ((firstTemp - minTemp) / (maxTemp - minTemp)) * height);
-            
-            for (let i = 1; i < displayData.length; i++) {
-                let x = i * xStep;
-                let temp = this.useFahrenheit ? this._celsiusToFahrenheit(displayData[i]) : displayData[i];
-                let y = height - ((temp - minTemp) / (maxTemp - minTemp)) * height;
-                cr.lineTo(x, y);
-            }
-            cr.stroke();
+        // Draw each series using all buffer data (full range)
+        for (let s of series) {
+            let xStep = width / (s.data.length - 1);
+            this._strokeSeries(cr, s.data, s.color, height, xStep);
         }
         
-        // Draw label and current temperature
-        if (data.length > 0) {
-            cr.setSourceRGBA(1, 1, 1, 0.9);
-            cr.selectFontFace("Sans", Cairo.FontSlant.NORMAL, Cairo.FontWeight.BOLD);
-            cr.setFontSize(14);
-            let temp = this.useFahrenheit ? this._celsiusToFahrenheit(data[data.length - 1]) : data[data.length - 1];
-            let unit = this.useFahrenheit ? "°F" : "°C";
-            cr.moveTo(5, 18);
-            cr.showText(label + ": " + temp.toFixed(1) + unit);
-        }
+        // Draw legend: label and current temperature per series
+        // (white for a single series, series color for several)
+        cr.selectFontFace("Sans", Cairo.FontSlant.NORMAL, Cairo.FontWeight.BOLD);
+        cr.setFontSize(14);
+        let unit = this.useFahrenheit ? "\u00B0F" : "\u00B0C";
+        series.forEach(Lang.bind(this, function(s, i) {
+            if (s.data.length === 0) return;
+            let c = series.length > 1 ? this._parseColor(s.color) : {r: 1, g: 1, b: 1};
+            cr.setSourceRGBA(c.r, c.g, c.b, 0.9);
+            let latest = s.data[s.data.length - 1];
+            let temp = this.useFahrenheit ? this._celsiusToFahrenheit(latest) : latest;
+            cr.moveTo(PANEL_LABEL_X, POPUP_LABEL_FIRST_Y + i * POPUP_LABEL_LINE_HEIGHT);
+            cr.showText(s.label + ": " + temp.toFixed(1) + unit);
+        }));
         
         cr.$dispose();
     },
@@ -657,6 +836,7 @@ TemperatureMonitorApplet.prototype = {
         this.cpuCanvas.set_height(effectiveHeight);
         this.gpuCanvas.set_width(this.graphWidth);
         this.gpuCanvas.set_height(effectiveHeight);
+        this.vramCanvas.set_height(effectiveHeight);
         
         // Restart monitoring with new sample rate
         if (this._timeout) {
@@ -669,6 +849,7 @@ TemperatureMonitorApplet.prototype = {
         // Redraw
         this.cpuCanvas.queue_repaint();
         this.gpuCanvas.queue_repaint();
+        this.vramCanvas.queue_repaint();
     },
     
     on_buffer_size_changed: function() {
@@ -728,8 +909,10 @@ TemperatureMonitorApplet.prototype = {
             if (this.cpuData.length > this.maxBufferSize) {
                 this.cpuData = this.cpuData.slice(-this.maxBufferSize);
             }
-            if (this.gpuData.length > this.maxBufferSize) {
-                this.gpuData = this.gpuData.slice(-this.maxBufferSize);
+            for (let gpu of this.gpus) {
+                if (gpu.data.length > this.maxBufferSize) {
+                    gpu.data = gpu.data.slice(-this.maxBufferSize);
+                }
             }
             
             this.pendingBufferSize = null;
@@ -740,6 +923,7 @@ TemperatureMonitorApplet.prototype = {
             if (this.menu && this.menu.isOpen) {
                 this.popupCpuCanvas.queue_repaint();
                 this.popupGpuCanvas.queue_repaint();
+                this.popupVramCanvas.queue_repaint();
             }
         }
     },
@@ -754,8 +938,10 @@ TemperatureMonitorApplet.prototype = {
         if (!this.overridePanelHeight) {
             this.cpuCanvas.set_height(this._panelHeight);
             this.gpuCanvas.set_height(this._panelHeight);
+            this.vramCanvas.set_height(this._panelHeight);
             this.cpuCanvas.queue_repaint();
             this.gpuCanvas.queue_repaint();
+            this.vramCanvas.queue_repaint();
         }
     }
 };

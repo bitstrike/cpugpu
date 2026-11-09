@@ -55,8 +55,26 @@
     "gpu-color": {
         "type": "colorchooser",
         "default": "rgba(100,255,100,1)",
-        "description": "GPU Graph Color",
-        "tooltip": "Color for the GPU temperature line"
+        "description": "GPU0 Graph Color",
+        "tooltip": "Color for the GPU0 temperature line and VRAM bar"
+    },
+    "gpu1-color": {
+        "type": "colorchooser",
+        "default": "rgba(100,180,255,1)",
+        "description": "GPU1 Graph Color",
+        "tooltip": "Color for the GPU1 temperature line and VRAM bar"
+    },
+    "gpu2-color": {
+        "type": "colorchooser",
+        "default": "rgba(255,200,80,1)",
+        "description": "GPU2 Graph Color",
+        "tooltip": "Color for the GPU2 temperature line and VRAM bar"
+    },
+    "gpu3-color": {
+        "type": "colorchooser",
+        "default": "rgba(220,120,255,1)",
+        "description": "GPU3 Graph Color",
+        "tooltip": "Color for the GPU3 temperature line and VRAM bar"
     },
     "bg-color": {
         "type": "colorchooser",

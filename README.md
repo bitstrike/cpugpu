@@ -1,7 +1,7 @@
 # CPU/GPU Temperature Monitor - Cinnamon Applet
 
 Real-time CPU and GPU temperature monitoring with scrolling line graphs for the Cinnamon desktop panel.
-This was developed on a system with a single Nvidia GPU. I don't know if it will work on systems with multiple GPUs (my laptop has issues to debug yet)
+Supports up to 4 GPUs (NVIDIA and AMD). Each GPU is drawn as its own temperature line on the GPU graph, with a per-GPU VRAM bar beside it.
 
 ## Screenshot
 
@@ -10,8 +10,9 @@ This was developed on a system with a single Nvidia GPU. I don't know if it will
 ## Features
 
 - Scrolling Cairo line graphs for CPU and GPU temperature
-- VRAM usage bar (green-to-red gradient) on the GPU graph
-- Tooltip showing current temps and VRAM usage
+- Multi-GPU support (max 4): one colored line per GPU on shared axes
+- Vertical VRAM bars (one per GPU, same color as its line) beside the GPU graph
+- Tooltip showing current temps and VRAM usage per GPU
 - Popup with full-history graphs on left-click
 - Configurable graph dimensions, colors, sample rate, and temperature range
 - Fahrenheit/Celsius support
@@ -34,7 +35,7 @@ Right-click the applet and select "Configure" to adjust:
 
 - Graph width and height (or auto-fit to panel)
 - Sample rate and time range
-- CPU/GPU line colors, background, and grid colors
+- CPU line color, GPU0-GPU3 line/VRAM bar colors, background, and grid colors
 - Temperature range (Y-axis min/max, entered in your chosen unit)
 - Fahrenheit/Celsius toggle
 - History buffer size
