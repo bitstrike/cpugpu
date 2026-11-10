@@ -12,7 +12,8 @@ Supports up to 4 GPUs (NVIDIA and AMD). Each GPU is drawn as its own temperature
 - Scrolling Cairo line graphs for CPU and GPU temperature
 - Multi-GPU support (max 4): one colored line per GPU on shared axes
 - Vertical VRAM bars (one per GPU, same color as its line) beside the GPU graph
-- Tooltip showing current temps and VRAM usage per GPU
+- Blinking 1px red dot beside the temperature of each GPU that has a monitor connected (read from DRM connector status)
+- Tooltip showing current temps and VRAM usage per GPU, with `[display]` on GPUs driving a monitor
 - Popup with full-history graphs on left-click
 - Configurable graph dimensions, colors, sample rate, and temperature range
 - Fahrenheit/Celsius support

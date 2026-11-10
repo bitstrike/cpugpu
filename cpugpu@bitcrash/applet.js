@@ -25,8 +25,21 @@ const AMD_PCI_VENDOR_ID = "0x1002";
 const DRM_PATH = "/sys/class/drm";
 const DRM_CARD_REGEX = /^card\d+$/;
 
-const NVIDIA_QUERY_CMD = "nvidia-smi --query-gpu=index,temperature.gpu,memory.used,memory.total --format=csv,noheader,nounits";
-const NVIDIA_FIELD_COUNT = 4;
+const NVIDIA_QUERY_CMD = "nvidia-smi --query-gpu=index,pci.bus_id,temperature.gpu,memory.used,memory.total --format=csv,noheader,nounits";
+const NVIDIA_FIELD_COUNT = 5;
+
+// Monitor-connected indicator: DRM connector status files (cardN-<connector>/status)
+const DRM_STATUS_FILE = "status";
+const DRM_STATUS_CONNECTED = "connected";
+// nvidia-smi prints "00000000:01:00.0"; sysfs uses "0000:01:00.0" (last 12 chars)
+const PCI_ADDRESS_LENGTH = 12;
+// Blinking 1px red dot at the upper left of a display GPU's temperature label
+const MONITOR_DOT_SIZE = 1;
+const MONITOR_DOT_X = 1;
+// Digits are about 0.7em tall, so half their height sits ~1/3 em above the baseline
+const MONITOR_DOT_BASELINE_FRACTION = 1 / 3;
+const MONITOR_DOT_COLOR = {r: 1, g: 0, b: 0, a: 1};
+const MONITOR_BLINK_INTERVAL_SECONDS = 1;
 
 // Settings key / property name pairs for per-GPU line colors (index = GPU index, length = MAX_GPUS)
 const GPU_COLOR_SETTINGS = [
@@ -51,6 +64,7 @@ const POPUP_VRAM_BAR_WIDTH = 14;
 const VRAM_BAR_GAP = 2;
 const VRAM_TRACK_ALPHA = 0.15;
 const VRAM_FILL_ALPHA = 0.6;
+const PANEL_LABEL_FONT_SIZE = 12;
 const PANEL_LABEL_X = 5;
 const PANEL_LABEL_FIRST_Y = 15;
 const PANEL_LABEL_LINE_HEIGHT = 14;
@@ -265,7 +279,18 @@ TemperatureMonitorApplet.prototype = {
         return false;
     },
     
+    _blink: function() {
+        this._blinkOn = !this._blinkOn;
+        if (this.gpus.some(function(gpu) { return gpu.hasMonitor; })) {
+            this.gpuCanvas.queue_repaint();
+        }
+        return true;
+    },
+    
     _startMonitoring: function() {
+        this._blinkOn = true;
+        this._blinkTimeout = Mainloop.timeout_add_seconds(MONITOR_BLINK_INTERVAL_SECONDS,
+            Lang.bind(this, this._blink));
         this._updateTemperatures();
         this._timeout = Mainloop.timeout_add_seconds(this.sampleRate, 
             Lang.bind(this, this._updateTemperatures));
@@ -318,7 +343,8 @@ TemperatureMonitorApplet.prototype = {
             if (this.useFahrenheit) {
                 gpuTemp = this._celsiusToFahrenheit(gpuTemp);
             }
-            let line = gpu.label + ": " + gpuTemp.toFixed(0) + unit;
+            let line = gpu.label + (gpu.hasMonitor ? " [display]" : "") +
+                ": " + gpuTemp.toFixed(0) + unit;
             if (gpu.vram.total > 0) {
                 let usedGB = (gpu.vram.used / MIB_PER_GIB).toFixed(1);
                 let totalGB = (gpu.vram.total / MIB_PER_GIB).toFixed(0);
@@ -397,6 +423,22 @@ TemperatureMonitorApplet.prototype = {
         // Runs once at startup. Builds the per-GPU state list (capped at MAX_GPUS).
         let gpus = [];
         
+        // DRM entries: all cardN names, plus the connector entries (cardN-<connector>)
+        let cards = [];
+        this.drmEntries = [];
+        try {
+            let drm = Gio.File.new_for_path(DRM_PATH);
+            let enumerator = drm.enumerate_children('standard::name',
+                Gio.FileQueryInfoFlags.NONE, null);
+            let info;
+            while ((info = enumerator.next_file(null)) != null) {
+                let name = info.get_name();
+                this.drmEntries.push(name);
+                if (DRM_CARD_REGEX.test(name)) cards.push(name);
+            }
+            cards.sort();
+        } catch (e) {}
+        
         // NVIDIA: nvidia-smi prints one csv line per GPU
         try {
             let [res, out] = GLib.spawn_command_line_sync(NVIDIA_QUERY_CMD);
@@ -404,23 +446,17 @@ TemperatureMonitorApplet.prototype = {
                 for (let line of ByteArray.toString(out).trim().split('\n')) {
                     let parts = line.split(',');
                     if (parts.length < NVIDIA_FIELD_COUNT) continue;
-                    gpus.push({vendor: VENDOR_NVIDIA, nvIndex: parseInt(parts[0])});
+                    gpus.push({
+                        vendor: VENDOR_NVIDIA,
+                        nvIndex: parseInt(parts[0]),
+                        card: this._findCardByPciAddress(cards, parts[1].trim())
+                    });
                 }
             }
         } catch (e) {}
         
-        // AMD: enumerate drm cards, keep AMD ones that expose a hwmon temperature
+        // AMD: keep drm cards that are AMD and expose a hwmon temperature
         try {
-            let drm = Gio.File.new_for_path(DRM_PATH);
-            let enumerator = drm.enumerate_children('standard::name',
-                Gio.FileQueryInfoFlags.NONE, null);
-            let cards = [];
-            let info;
-            while ((info = enumerator.next_file(null)) != null) {
-                let name = info.get_name();
-                if (DRM_CARD_REGEX.test(name)) cards.push(name);
-            }
-            cards.sort();
             for (let card of cards) {
                 let devPath = DRM_PATH + '/' + card + '/device';
                 if (this._readFile(devPath + '/vendor') !== AMD_PCI_VENDOR_ID) continue;
@@ -428,6 +464,7 @@ TemperatureMonitorApplet.prototype = {
                 if (!tempPath) continue;
                 gpus.push({
                     vendor: VENDOR_AMD,
+                    card: card,
                     tempPath: tempPath,
                     vramUsedPath: devPath + '/mem_info_vram_used',
                     vramTotalPath: devPath + '/mem_info_vram_total'
@@ -448,10 +485,35 @@ TemperatureMonitorApplet.prototype = {
         
         gpus.forEach(function(gpu, i) {
             gpu.label = "GPU" + i;
+            gpu.hasMonitor = false;
             gpu.data = [];
             gpu.vram = {used: 0, total: 0, fraction: 0}; // MiB
         });
         return gpus;
+    },
+    
+    _findCardByPciAddress: function(cards, busId) {
+        // Returns the drm card whose device symlink ends in the given PCI address, or null
+        let wanted = busId.toLowerCase().slice(-PCI_ADDRESS_LENGTH);
+        for (let card of cards) {
+            try {
+                let target = GLib.file_read_link(DRM_PATH + '/' + card + '/device');
+                if (target.toLowerCase().endsWith(wanted)) return card;
+            } catch (e) {}
+        }
+        return null;
+    },
+    
+    _cardHasMonitor: function(card) {
+        // True if any connector of this card (cardN-<connector>) reports "connected"
+        if (!card) return false;
+        let prefix = card + '-';
+        for (let name of this.drmEntries) {
+            if (!name.startsWith(prefix)) continue;
+            let status = this._readFile(DRM_PATH + '/' + name + '/' + DRM_STATUS_FILE);
+            if (status === DRM_STATUS_CONNECTED) return true;
+        }
+        return false;
     },
     
     _queryNvidia: function() {
@@ -467,9 +529,9 @@ TemperatureMonitorApplet.prototype = {
                     let parts = line.split(',');
                     if (parts.length < NVIDIA_FIELD_COUNT) continue;
                     readings[parseInt(parts[0])] = {
-                        temp: parseFloat(parts[1]),
-                        used: parseFloat(parts[2]),
-                        total: parseFloat(parts[3])
+                        temp: parseFloat(parts[2]),
+                        used: parseFloat(parts[3]),
+                        total: parseFloat(parts[4])
                     };
                 }
             }
@@ -498,6 +560,7 @@ TemperatureMonitorApplet.prototype = {
         let nvidia = this._queryNvidia();
         
         for (let gpu of this.gpus) {
+            gpu.hasMonitor = this._cardHasMonitor(gpu.card);
             let temp = NaN;
             if (gpu.vendor === VENDOR_NVIDIA) {
                 let reading = nvidia[gpu.nvIndex];
@@ -597,7 +660,7 @@ TemperatureMonitorApplet.prototype = {
         
         // Draw current temperature per GPU (white for one GPU, GPU color for several)
         cr.selectFontFace("Sans", Cairo.FontSlant.NORMAL, Cairo.FontWeight.BOLD);
-        cr.setFontSize(12);
+        cr.setFontSize(PANEL_LABEL_FONT_SIZE);
         let unit = this.useFahrenheit ? "\u00B0F" : "\u00B0C";
         this.gpus.forEach(Lang.bind(this, function(gpu, i) {
             if (gpu.data.length === 0) return;
@@ -608,6 +671,21 @@ TemperatureMonitorApplet.prototype = {
             cr.moveTo(PANEL_LABEL_X, PANEL_LABEL_FIRST_Y + i * PANEL_LABEL_LINE_HEIGHT);
             cr.showText(temp.toFixed(1) + unit);
         }));
+        
+        // Blinking red dot for each GPU that has a monitor connected
+        if (this._blinkOn) {
+            cr.setSourceRGBA(MONITOR_DOT_COLOR.r, MONITOR_DOT_COLOR.g,
+                MONITOR_DOT_COLOR.b, MONITOR_DOT_COLOR.a);
+            // Anchor to the label: same row baseline as the text, raised to mid-digit height
+            let dotRise = Math.round(PANEL_LABEL_FONT_SIZE * MONITOR_DOT_BASELINE_FRACTION);
+            this.gpus.forEach(function(gpu, i) {
+                if (!gpu.hasMonitor) return;
+                let baseline = PANEL_LABEL_FIRST_Y + i * PANEL_LABEL_LINE_HEIGHT;
+                cr.rectangle(MONITOR_DOT_X, baseline - dotRise,
+                    MONITOR_DOT_SIZE, MONITOR_DOT_SIZE);
+                cr.fill();
+            });
+        }
         
         cr.$dispose();
     },
@@ -931,6 +1009,10 @@ TemperatureMonitorApplet.prototype = {
     on_applet_removed_from_panel: function() {
         if (this._timeout) {
             Mainloop.source_remove(this._timeout);
+        }
+        if (this._blinkTimeout) {
+            Mainloop.source_remove(this._blinkTimeout);
+            this._blinkTimeout = null;
         }
     },
     
